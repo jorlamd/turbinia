@@ -332,6 +332,8 @@ class TurbiniaTask(object):
       'id', 'job_id', 'last_update', 'name', 'request_id', 'requester'
   ]
 
+  REQUIRED_STATUS = []
+
   def __init__(
       self, name=None, base_output_dir=None, request_id=None, requester=None):
     """Initialization for TurbiniaTask."""
@@ -396,6 +398,28 @@ class TurbiniaTask(object):
     task.last_update = datetime.strptime(
         input_dict['last_update'], DATETIME_FORMAT)
     return task
+
+  def evidence_setup(self, evidence):
+    """Validates and processes the evidence.
+
+    Args:
+      evidence(Evidence): The Evidence to setup.
+
+    Raises:
+      TurbiniaException: If the Evidence can't be validated or the current
+          status does not meet the required status.
+    """
+    evidence.validate()
+    evidence.preprocess(self.tmp_dir)
+    for status in self.REQUIRED_STATUS:
+      if not evidence.status[status]:
+        raise TurbiniaException(
+            'Evidence {0!s} being processed by Task {1:s} requires Evidence '
+            'to be in state {2:s}, but earlier pre-processors may have '
+            'failed.  Current status is {3:s}. See previous logs for more '
+            'information.'.format(
+                evidence, self.name, status.name,
+                pprint.pformat(evidence.status)))
 
   def execute(
       self, cmd, result, save_files=None, log_files=None, new_evidence=None,
@@ -517,7 +541,6 @@ class TurbiniaTask(object):
       raise TurbiniaException(
           'Evidence source path {0:s} does not exist'.format(
               evidence.source_path))
-    evidence.preprocess(self.tmp_dir)
     return self.result
 
   def touch(self):
@@ -610,7 +633,6 @@ class TurbiniaTask(object):
       try:
         self.result = self.setup(evidence)
         original_result_id = self.result.id
-        evidence.validate()
 
         # TODO(wyassine): refactor it so the result task does not
         # have to go through the preprocess stage. At the moment
