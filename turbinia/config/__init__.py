@@ -75,6 +75,8 @@ OPTIONAL_VARS = [
     'PUBSUB_TOPIC',
     'GCS_OUTPUT_PATH',
     'RECIPE_FILE_DIR',
+    'STACKDRIVER_LOGGING',
+    'STACKDRIVER_TRACEBACK',
     # REDIS CONFIG
     'REDIS_HOST',
     'REDIS_PORT',
@@ -303,3 +305,25 @@ class TaskRecipeVariant(object):
   def load(self, data):
     """ Load task recipe intance from dict. """
     self.params = data['params'] if 'params' in data else {}
+
+def ParseDependencies():
+  """Parses the config file DEPENDENCIES variable.
+
+  Raises:
+    TurbiniaException: If bad config file.
+
+  Returns:
+   dependencies(dict): The parsed dependency values.
+  """
+  dependencies = {}
+  try:
+    for values in CONFIG.DEPENDENCIES:
+      job = values['job'].lower()
+      dependencies[job] = {}
+      dependencies[job]['programs'] = values['programs']
+      dependencies[job]['docker_image'] = values.get('docker_image')
+  except (KeyError, TypeError) as exception:
+    raise TurbiniaException(
+        'An issue has occurred while parsing the '
+        'dependency config: {0!s}'.format(exception))
+  return dependencies

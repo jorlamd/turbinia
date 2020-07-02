@@ -29,7 +29,8 @@ from turbinia import config
 from turbinia.config import TurbiniaRecipe
 from turbinia import TurbiniaException
 from turbinia.config import logger
-from turbinia.lib import libcloudforensics
+from libcloudforensics.providers.gcp import forensics as gcp_forensics
+from turbinia.lib import google_cloud
 from turbinia import __version__
 from turbinia.processors import archive
 
@@ -110,17 +111,19 @@ def main():
       'text based evidence files with (in extended grep regex format). '
       'This filtered output will be in addition to the complete output')
   parser.add_argument(
-      '-j', '--jobs_whitelist', default=[], type=csv_list,
-      help='A whitelist for Jobs that will be allowed to run (in CSV format, '
+      '-Y', '--yara_rules_file', help='A file containing Yara rules.')
+  parser.add_argument(
+      '-j', '--jobs_allowlist', default=[], type=csv_list,
+      help='An allowlist for Jobs that will be allowed to run (in CSV format, '
       'no spaces). This will not force them to run if they are not configured '
       'to. This is applied both at server start time and when the client makes '
       'a processing request. When applied at server start time the change is '
       'persistent while the server is running.  When applied by the client, it '
       'will only affect that processing request.')
   parser.add_argument(
-      '-J', '--jobs_blacklist', default=[], type=csv_list,
-      help='A blacklist for Jobs we will not allow to run.  See '
-      '--jobs_whitelist help for details on format and when it is applied.')
+      '-J', '--jobs_denylist', default=[], type=csv_list,
+      help='A denylist for Jobs we will not allow to run.  See '
+      '--jobs_allowlist help for details on format and when it is applied.')
   parser.add_argument(
       '-p', '--poll_interval', default=60, type=int,
       help='Number of seconds to wait between polling for task state info')
@@ -206,9 +209,10 @@ def main():
       'googleclouddisk',
       help='Process Google Cloud Persistent Disk as Evidence')
   parser_googleclouddisk.add_argument(
-      '-C', '--copy_only', help='Only copy disk and do not process with '
-      'Turbinia. This only takes effect when a source --project is defined '
-      'and can be run without any Turbinia server or workers configured.')
+      '-C', '--copy_only', action='store_true', help='Only copy disk and do '
+      'not process with Turbinia. This only takes effect when a source '
+      '--project is defined and can be run without any Turbinia server or '
+      'workers configured.')
   parser_googleclouddisk.add_argument(
       '-d', '--disk_name', help='Google Cloud name for disk', required=True)
   parser_googleclouddisk.add_argument(
@@ -234,9 +238,10 @@ def main():
       help='Process Google Cloud Persistent Disk with an embedded raw disk '
       'image as Evidence')
   parser_googleclouddiskembedded.add_argument(
-      '-C', '--copy_only', help='Only copy disk and do not process with '
-      'Turbinia. This only takes effect when a source --project is defined '
-      'and can be run without any Turbinia server or workers configured.')
+      '-C', '--copy_only', action='store_true', help='Only copy disk and do '
+      'not process with Turbinia. This only takes effect when a source '
+      '--project is defined and can be run without any Turbinia server or '
+      'workers configured.')
   parser_googleclouddiskembedded.add_argument(
       '-e', '--embedded_path',
       help='Path within the Persistent Disk that points to the raw image file',
@@ -317,7 +322,7 @@ def main():
   subparsers.add_parser(
       'listjobs',
       help='List all available Jobs. These Job names can be used by '
-      '--jobs_whitelist and --jobs_blacklist')
+      '--jobs_allowlist and --jobs_denylist')
 
   # PSQ Worker
   parser_psqworker = subparsers.add_parser('psqworker', help='Run PSQ worker')
@@ -401,6 +406,10 @@ def main():
   else:
     log.setLevel(logging.INFO)
 
+  # Enable GCP Stackdriver Logging
+  if config.STACKDRIVER_LOGGING and args.command in ('server', 'psqworker'):
+    google_cloud.setup_stackdriver_handler(config.TURBINIA_PROJECT)
+
   log.info('Turbinia version: {0:s}'.format(__version__))
 
   # Do late import of other needed Turbinia modules.  This is needed because the
@@ -408,7 +417,7 @@ def main():
   # the config until after we parse the args so that we can use those arguments
   # to point to config paths.
   from turbinia import notify
-  from turbinia.client import TurbiniaClient
+  from turbinia import client as TurbiniaClientProvider
   from turbinia.client import TurbiniaCeleryClient
   from turbinia.client import TurbiniaServer
   from turbinia.client import TurbiniaCeleryWorker
@@ -438,9 +447,11 @@ def main():
         'This is a test notification')
     sys.exit(0)
 
-  if args.jobs_whitelist and args.jobs_blacklist:
+  args.jobs_allowlist = [j.lower() for j in args.jobs_allowlist]
+  args.jobs_denylist = [j.lower() for j in args.jobs_denylist]
+  if args.jobs_allowlist and args.jobs_denylist:
     log.error(
-        'A Job filter whitelist and blacklist cannot be specified at the same '
+        'A Job filter allowlist and denylist cannot be specified at the same '
         'time')
     sys.exit(1)
 
@@ -457,16 +468,23 @@ def main():
       log.warning(
           'Cannot open file {0:s} [{1!s}]'.format(args.filter_patterns_file, e))
 
+  # Read yara rules
+  yara_rules = None
+  if (args.yara_rules_file and not os.path.exists(args.yara_rules_file)):
+    log.error('Filter patterns file {0:s} does not exist.')
+    sys.exit(1)
+  elif args.yara_rules_file:
+    try:
+      yara_rules = open(args.yara_rules_file).read()
+    except IOError as e:
+      log.warning(
+          'Cannot open file {0:s} [{1!s}]'.format(args.yara_rules_file, e))
+      sys.exit(1)
+
   # Create Client object
+  client = None
   if args.command not in ('psqworker', 'server'):
-    if config.TASK_MANAGER.lower() == 'celery':
-      client = TurbiniaCeleryClient()
-    elif args.run_local:
-      client = TurbiniaClient(run_local=True)
-    else:
-      client = TurbiniaClient()
-  else:
-    client = None
+    client = TurbiniaClientProvider.get_turbinia_client(args.run_local)
 
   # Make sure run_local flags aren't conflicting with other server/client flags
   server_flags_set = args.server or args.command == 'server'
@@ -494,10 +512,11 @@ def main():
       log.error('Turbinia project must be set by --project or in config')
       sys.exit(1)
 
-    if args.project and args.project != config.TURBINIA_PROJECT:
-      new_disk = libcloudforensics.create_disk_copy(
+    if ((args.project and args.project != config.TURBINIA_PROJECT) or
+        (args.zone and args.zone != config.TURBINIA_ZONE)):
+      new_disk = gcp_forensics.CreateDiskCopy(
           args.project, config.TURBINIA_PROJECT, None, config.TURBINIA_ZONE,
-          args.disk_name)
+          disk_name=args.disk_name)
       args.disk_name = new_disk.name
       if args.copy_only:
         log.info('--copy_only specified, so not processing with Turbinia')
@@ -532,8 +551,18 @@ def main():
   elif args.command == 'directory':
     args.name = args.name if args.name else args.source_path
     source_path = os.path.abspath(args.source_path)
-    evidence_ = evidence.Directory(
-        name=args.name, source_path=source_path, source=args.source)
+
+    if not config.SHARED_FILESYSTEM:
+      log.info(
+          'A Cloud Only Architecture has been detected. '
+          'Compressing the directory for GCS upload.')
+      source_path = archive.CompressDirectory(source_path, output_path='/tmp')
+      args.name = args.name if args.name else source_path
+      evidence_ = evidence.CompressedDirectory(
+          name=args.name, source_path=source_path, source=args.source)
+    else:
+      evidence_ = evidence.Directory(
+          name=args.name, source_path=source_path, source=args.source)
   elif args.command == 'compressedirectory':
     archive.ValidateTarFile(args.source_path)
     args.name = args.name if args.name else args.source_path
@@ -581,16 +610,16 @@ def main():
     # which we are bypassing.
     logger.setup()
     worker = TurbiniaPsqWorker(
-        jobs_blacklist=args.jobs_blacklist, jobs_whitelist=args.jobs_whitelist)
+        jobs_denylist=args.jobs_denylist, jobs_allowlist=args.jobs_allowlist)
     worker.start()
   elif args.command == 'celeryworker':
     logger.setup()
     worker = TurbiniaCeleryWorker(
-        jobs_blacklist=args.jobs_blacklist, jobs_whitelist=args.jobs_whitelist)
+        jobs_denylist=args.jobs_denylist, jobs_allowlist=args.jobs_allowlist)
     worker.start()
   elif args.command == 'server':
     server = TurbiniaServer(
-        jobs_blacklist=args.jobs_blacklist, jobs_whitelist=args.jobs_whitelist)
+        jobs_denylist=args.jobs_denylist, jobs_allowlist=args.jobs_allowlist)
     server.start()
   elif args.command == 'status':
     region = config.TURBINIA_REGION
@@ -666,6 +695,7 @@ def main():
     request = TurbiniaRequest(
         request_id=args.request_id, requester=getpass.getuser())
     request.evidence.append(evidence_)
+
     if args.recipe:
       if (args.jobs_blacklist or args.jobs_whitelist or
           args.filter_patterns_file or args.recipe_config):
@@ -686,6 +716,7 @@ def main():
         request.recipe['jobs_blacklist'] = args.jobs_blacklist
       if args.jobs_whitelist:
         request.recipe['jobs_whitelist'] = args.jobs_whitelist
+
     if args.dump_json:
       print(request.to_json().encode('utf-8'))
       sys.exit(0)
