@@ -226,14 +226,14 @@ class TurbiniaRecipe(object):
     LoadConfig()
     with open(self.recipe_file, 'r') as r_file:
       try:
-        recipe_contents = r_file.read()
+        recipe_file_contents = r_file.read()
       except yaml.parser.ParserError as exception:
         message = (
             'Could not load recipe file {0:s}: {1!s}'.format(
                 self.recipe_file, exception))
         log.error(message)
         raise TurbiniaException(message)
-    recipe_dict = load(recipe_contents, Loader=Loader)
+    recipe_dict = load(recipe_file_contents, Loader=Loader)
     self.jobs_whitelist = recipe_dict.get('jobs_whitelist', [])
     self.jobs_blacklist = recipe_dict.get('jobs_blacklist', [])
     for _file in self.filter_patterns_files:
@@ -241,18 +241,16 @@ class TurbiniaRecipe(object):
         line = pattern_file.readline()
         if line not in self.filter_patterns:
           self.filter_patterns.append(line)
-    for recipe_item, item_contents in recipe_dict.items():
+    for recipe_item, recipe_item_contents in recipe_dict.items():
       if (recipe_item not in
           ['jobs_blacklist', 'jobs_whitelist', 'filter_patterns_files']):
-        aux_task_recipe = TurbiniaTaskRecipe(recipe_item)
-        aux_task_recipe.load(item_contents)
         if recipe_item in self.task_recipes:
           raise TurbiniaException(
-              'Two recipes for the same tool {0:s} have been found.'
+              'Two recipe items with the same name {0:s} have been found.'
               'If you wish to specify several task runs of the same tools,'
               'please add several task variants to the same tool recipe.'
           )
-        self.task_recipes[recipe_item] = aux_task_recipe
+        self.task_recipes[recipe_item] = recipe_item_contents
 
   def retrieve_task_recipe(self, task):
     """ Retrieve recipe by name.  """
@@ -262,49 +260,8 @@ class TurbiniaRecipe(object):
   def serialize(self):
     """ Obtain serialized task recipe dict. """
     serialized_data = self.__dict__.copy()
-    serialized_data['task_recipes'] = {
-        k: v.serialize() for k, v in self.task_recipes.items()
-    }
     return serialized_data
 
-
-class TurbiniaTaskRecipe(object):
-  """ Base class for task recipe container. """
-
-  def __init__(self, name):
-    self.name = name
-    self.variants = {}
-
-  def load(self, data):
-    """ Load task recipe from dict """
-
-    if 'variants' not in data:
-      data['variants'] = {'single_variant': data}
-    for variant, variant_config in data['variants'].items():
-      aux_variant = TaskRecipeVariant(name=variant)
-      aux_variant.load(variant_config)
-      self.variants[variant] = aux_variant
-
-  def serialize(self):
-    """ Serialize task tecipe into dict. """
-    serialized_data = {}
-    serialized_data['name'] = self.name
-    serialized_data['variants'] = {
-        k: v.__dict__ for k, v in self.variants.items()
-    }
-    return serialized_data
-
-
-class TaskRecipeVariant(object):
-  """ Class to house an instance of a task recipe """
-
-  def __init__(self, name):
-    self.name = name
-    self.params = None
-
-  def load(self, data):
-    """ Load task recipe intance from dict. """
-    self.params = data['params'] if 'params' in data else {}
 
 def ParseDependencies():
   """Parses the config file DEPENDENCIES variable.

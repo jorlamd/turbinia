@@ -31,6 +31,9 @@ class PlasoTask(TurbiniaTask):
 
   task_conf = {
       'artifact_filters': [],
+      'parsers': []
+      'file_filters': []
+      'yara_rules':[]
       'no_vss': False,
       'vss_only': False,
       'volumes': 'all',
@@ -64,7 +67,7 @@ class PlasoTask(TurbiniaTask):
           cmd.extend([prepend + k, v])
     return cmd
 
-  def run(self, evidence, result):
+  def run(self, evidence, result, recipe={}):
     """Task that process data with Plaso.
 
     Args:
@@ -74,6 +77,8 @@ class PlasoTask(TurbiniaTask):
     Returns:
         TurbiniaTaskResult object.
     """
+
+
     config.LoadConfig()
 
     # TODO: Convert to using real recipes after
@@ -81,20 +86,20 @@ class PlasoTask(TurbiniaTask):
     # using the --recipe_config flag, and this can be used with colon separated
     # values like:
     # --recipe_config='artifact_filters=BrowserFoo:BrowserBar,parsers=foo:bar'
-    if evidence.config and evidence.config.get('artifact_filters'):
-      artifact_filters = evidence.config.get('artifact_filters')
+    if recipe and recipe.get('artifact_filters'):
+      artifact_filters = recipe.get('artifact_filters')
       artifact_filters = artifact_filters.replace(':', ',')
     else:
       artifact_filters = None
 
-    if evidence.config and evidence.config.get('parsers'):
-      parsers = evidence.config.get('parsers')
+    if recipe and recipe.get('parsers'):
+      parsers = recipe.get('parsers')
       parsers = parsers.replace(':', ',')
     else:
       parsers = None
 
-    if evidence.config and evidence.config.get('file_filters'):
-      file_filters = evidence.config.get('file_filters')
+    if recipe and recipe.get('file_filters'):
+      file_filters = recipe.get('file_filters')
       file_filter_file = os.path.join(self.tmp_dir, 'file_filter.txt')
       try:
         with open(file_filter_file, 'wb') as file_filter_fh:
@@ -109,13 +114,13 @@ class PlasoTask(TurbiniaTask):
       file_filters = None
       file_filter_file = None
 
-    if evidence.config and evidence.config.get('vss'):
-      vss = evidence.config.get('vss')
+    if recipe and recipe.get('vss'):
+      vss = recipe.get('vss')
     else:
       vss = None
 
-    if evidence.config and evidence.config.get('yara_rules'):
-      yara_rules = evidence.config.get('yara_rules')
+    if recipe and recipe.get('yara_rules'):
+      yara_rules = recipe.get('yara_rules')
       with NamedTemporaryFile(dir=self.tmp_dir, delete=False, mode='w') as fh:
         yara_file_path = fh.name
         fh.write(yara_rules)

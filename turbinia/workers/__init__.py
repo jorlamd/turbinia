@@ -371,7 +371,7 @@ class TurbiniaTask(object):
   ]
 
   def __init__(
-      self, name=None, task_variant='', base_output_dir=None, request_id=None,
+      self, name=None, , base_output_dir=None, request_id=None,
       requester=None):
     """Initialization for TurbiniaTask."""
     if base_output_dir:
@@ -396,7 +396,6 @@ class TurbiniaTask(object):
     self.turbinia_version = turbinia.__version__
     self.requester = requester if requester else 'user_unspecified'
     self._evidence_config = {}
-    self.task_variant = task_variant
 
   def serialize(self):
     """Converts the TurbiniaTask object into a serializable dict.
@@ -650,6 +649,14 @@ class TurbiniaTask(object):
     log.info('Result check: {0:s}'.format(check_status))
     return result
 
+  def get_task_recipe(self, tool_name, evidence):
+    for task_recipe_name, task_recipe in evidence._config.items():
+      if isinstance(task_recipe, dict):
+        tool = task_recipe.get('tool',None):
+        if tool and tool = tool_name:
+          return task_recipe
+    return {}
+          
   def run_wrapper(self, evidence):
     """Wrapper to manage TurbiniaTaskResults and exception handling.
 
@@ -728,8 +735,11 @@ class TurbiniaTask(object):
           self.result.status = message
           return self.result.serialize()
         self.result.update_task_status(self, 'running')
-        self._evidence_config = evidence.config
-        self.result = self.run(evidence, self.result)
+        #commenting out assuming this particular release does not aim to support 
+        #passing recipes to newly created evidence
+        #self._evidence_config = evidence.config
+        task_recipe = self.get_task_recipe(self.name, evidence) 
+        self.result = self.run(evidence, self.result, task_recipe)
       # pylint: disable=broad-except
       except Exception as exception:
         message = (
@@ -792,7 +802,7 @@ class TurbiniaTask(object):
               self.result.id))
     return self.result.serialize()
 
-  def run(self, evidence, result):
+  def run(self, evidence, result, recipe={}):
     """Entry point to execute the task.
 
     Args:

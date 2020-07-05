@@ -204,6 +204,7 @@ class BaseTaskManager(object):
                 job_instance.name, evidence_.name))
         job_count += 1
         for task in job_instance.create_tasks([evidence_]):
+          
           self.add_task(task, job_instance, evidence_)
 
     if not job_count:

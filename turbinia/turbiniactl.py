@@ -698,7 +698,7 @@ def main():
 
     if args.recipe:
       if (args.jobs_blacklist or args.jobs_whitelist or
-          args.filter_patterns_file or args.recipe_config):
+          args.recipe_config):
         raise TurbiniaException(
             'Specifying a recipe is incompatible with defining'
             ' jobs white/black lists, filter patterns or recipe_config'
