@@ -29,34 +29,28 @@ from turbinia.workers import TurbiniaTask
 class PlasoTask(TurbiniaTask):
   """Task to run Plaso (log2timeline)."""
 
-  task_conf = {
-      'artifact_filters': [],
-      'parsers': []
-      'file_filters': []
-      'yara_rules':[]
-      'no_vss': False,
-      'vss_only': False,
-      'volumes': 'all',
-      'partitions': 'all',
-      'no-vss': True
+  task_config = {
+      'status_view': 'none', 
+      'hashers': 'all',
+      'partition': 'all',
+      'vss_stores': 'all',
     }
 
-  def filter_command(self):
-    for k, v in self.task_conf.items():
-      if (k in ['vss-stores', 'vss_stores', 'no-vss', 'no_vss']):
-        self.task_conf.pop('no-vss', None)
-        self.task_conf.pop('no_vss', None)
-
-  def build_command(self):
+  def build_plaso_command(self, base_command, conf):
     """ Tasked with building the command """
     # Base command could be potentially placed in global configuration
-    self.filter_command()
-    cmd = ['log2timeline.py']
-    for k, v in self.task_conf.items():
+    cmd = [base_command]
+    for k, v in conf.items():
       prepend = '-'
       if len(k) > 1:
         prepend = '--'
-      if isinstance(v, list):
+      if k == 'file_filter' or k == 'file-filter' or k == 'filter-file':
+        file_path = self.draft_list_file('filter_file', v)
+        cmd.extend(['-f', file_path])
+      elif k == 'yara_rules':
+        file_path = self.copy_to_temp_file(v)
+        cmd.extend(['--yara_rules', file_path])
+      elif isinstance(v, list):
         if v:
           cmd.extend([prepend + k, ','.join(v)])
       elif isinstance(v, bool):
@@ -65,7 +59,7 @@ class PlasoTask(TurbiniaTask):
       elif isinstance(v, str):
         if v:
           cmd.extend([prepend + k, v])
-    return cmd
+      return cmd
 
   def run(self, evidence, result, recipe={}):
     """Task that process data with Plaso.
@@ -78,54 +72,7 @@ class PlasoTask(TurbiniaTask):
         TurbiniaTaskResult object.
     """
 
-
     config.LoadConfig()
-
-    # TODO: Convert to using real recipes after
-    # https://github.com/google/turbinia/pull/486 is in.  For now we're just
-    # using the --recipe_config flag, and this can be used with colon separated
-    # values like:
-    # --recipe_config='artifact_filters=BrowserFoo:BrowserBar,parsers=foo:bar'
-    if recipe and recipe.get('artifact_filters'):
-      artifact_filters = recipe.get('artifact_filters')
-      artifact_filters = artifact_filters.replace(':', ',')
-    else:
-      artifact_filters = None
-
-    if recipe and recipe.get('parsers'):
-      parsers = recipe.get('parsers')
-      parsers = parsers.replace(':', ',')
-    else:
-      parsers = None
-
-    if recipe and recipe.get('file_filters'):
-      file_filters = recipe.get('file_filters')
-      file_filter_file = os.path.join(self.tmp_dir, 'file_filter.txt')
-      try:
-        with open(file_filter_file, 'wb') as file_filter_fh:
-          for filter_ in file_filters.split(':'):
-            file_filter_fh.write(filter_.encode('utf-8') + b'\n')
-      except IOError as exception:
-        message = 'Cannot write to filter file {0:s}: {1!s}'.format(
-            file_filter_file, exception)
-        result.close(self, success=False, status=message)
-        return result
-    else:
-      file_filters = None
-      file_filter_file = None
-
-    if recipe and recipe.get('vss'):
-      vss = recipe.get('vss')
-    else:
-      vss = None
-
-    if recipe and recipe.get('yara_rules'):
-      yara_rules = recipe.get('yara_rules')
-      with NamedTemporaryFile(dir=self.tmp_dir, delete=False, mode='w') as fh:
-        yara_file_path = fh.name
-        fh.write(yara_rules)
-    else:
-      yara_rules = None
 
     # Write plaso file into tmp_dir because sqlite has issues with some shared
     # filesystems (e.g NFS).
@@ -133,26 +80,15 @@ class PlasoTask(TurbiniaTask):
     plaso_evidence = PlasoFile(source_path=plaso_file)
     plaso_log = os.path.join(self.output_dir, '{0:s}.log'.format(self.id))
 
-    if self.task_variant:
-      self.task_conf.update(evidence.confg[self.task_variant])
-      cmd = self.build_command()
-    else:
-      # TODO(aarontp): Move these flags into a recipe
-      cmd = (
-          'log2timeline.py --status_view none --hashers all '
-          '--partition all --vss_stores all').split()
+    working_recipe = self.task_config
+    if recipe:
+      working_recipe = recipe
+
+    cmd = self.build_plaso_command('log2timeline.py', working_recipe)
+
+    # TODO(aarontp): Move these flags into a recipe
     if config.DEBUG_TASKS:
       cmd.append('-d')
-    if artifact_filters:
-      cmd.extend(['--artifact_filters', artifact_filters])
-    if parsers:
-      cmd.extend(['--parsers', parsers])
-    if file_filters:
-      cmd.extend(['--file_filter', file_filter_file])
-    if vss:
-      cmd.extend(['--vss_stores', vss])
-    if yara_rules:
-      cmd.extend(['--yara_rules', yara_file_path])
 
     if isinstance(evidence, (APFSEncryptedDisk, BitlockerDisk)):
       if evidence.recovery_key:

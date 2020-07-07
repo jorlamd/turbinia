@@ -371,7 +371,7 @@ class TurbiniaTask(object):
   ]
 
   def __init__(
-      self, name=None, , base_output_dir=None, request_id=None,
+      self, name=None, base_output_dir=None, request_id=None,
       requester=None):
     """Initialization for TurbiniaTask."""
     if base_output_dir:
@@ -435,6 +435,25 @@ class TurbiniaTask(object):
     task.last_update = datetime.strptime(
         input_dict['last_update'], DATETIME_FORMAT)
     return task
+
+  def copy_to_temp_file(source_file):
+    with open(source_file, 'r') as sf_fh:
+      contents = sf_fh.read()
+    with NamedTemporaryFile(dir=self.tmp_dir, delete=False, mode='w') as fh:
+      sf_fh.write(contents)
+    return sf_fh.name
+
+  def draft_list_file(file_name, entries):
+    file_path = os.path.join(self.tmp_dir, file_name)
+    try:
+      with open(file_path, 'wb') as file_fh:
+        for entry_ in entries:
+          file_fh.write(entry_.encode('utf-8') + b'\n')
+    except IOError as exception:
+      message = 'Cannot write to file {0:s}: {1!s}'.format(
+          file_path, exception)
+    return file_path
+
 
   def execute(
       self, cmd, result, save_files=None, log_files=None, new_evidence=None,
@@ -649,11 +668,11 @@ class TurbiniaTask(object):
     log.info('Result check: {0:s}'.format(check_status))
     return result
 
-  def get_task_recipe(self, tool_name, evidence):
-    for task_recipe_name, task_recipe in evidence._config.items():
+  def get_task_recipe(self, task_name, evidence):
+    for task_recipe_name, task_recipe in evidence.config.items():
       if isinstance(task_recipe, dict):
-        tool = task_recipe.get('tool',None):
-        if tool and tool = tool_name:
+        task = task_recipe.get('task',None)
+        if task and task == task_name:
           return task_recipe
     return {}
           
@@ -738,7 +757,10 @@ class TurbiniaTask(object):
         #commenting out assuming this particular release does not aim to support 
         #passing recipes to newly created evidence
         #self._evidence_config = evidence.config
+        print('**** LOOKING FOR ' + self.name + ' ********')
         task_recipe = self.get_task_recipe(self.name, evidence) 
+        if task_recipe:
+          task_recipe.pop('task')
         self.result = self.run(evidence, self.result, task_recipe)
       # pylint: disable=broad-except
       except Exception as exception:

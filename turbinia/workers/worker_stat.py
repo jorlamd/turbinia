@@ -30,7 +30,7 @@ from turbinia.evidence import ReportText
 class StatTask(TurbiniaTask):
   """Task to run Stat."""
 
-  def run(self, evidence, result):
+  def run(self, evidence, result, recipe={}):
     """Test Stat task.
 
     Args:
