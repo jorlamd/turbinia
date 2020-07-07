@@ -61,7 +61,7 @@ class PlasoTask(TurbiniaTask):
           cmd.extend([prepend + k, v])
       return cmd
 
-  def run(self, evidence, result, recipe={}):
+  def run(self, evidence, result):
     """Task that process data with Plaso.
 
     Args:
@@ -81,8 +81,8 @@ class PlasoTask(TurbiniaTask):
     plaso_log = os.path.join(self.output_dir, '{0:s}.log'.format(self.id))
 
     working_recipe = self.task_config
-    if recipe:
-      working_recipe = recipe
+    if self.recipe:
+      working_recipe = self.recipe
 
     cmd = self.build_plaso_command('log2timeline.py', working_recipe)
 

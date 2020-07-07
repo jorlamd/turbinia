@@ -396,6 +396,7 @@ class TurbiniaTask(object):
     self.turbinia_version = turbinia.__version__
     self.requester = requester if requester else 'user_unspecified'
     self._evidence_config = {}
+    self.recipe = {}
 
   def serialize(self):
     """Converts the TurbiniaTask object into a serializable dict.
@@ -669,7 +670,7 @@ class TurbiniaTask(object):
     return result
 
   def get_task_recipe(self, task_name, evidence):
-    for task_recipe_name, task_recipe in evidence.config.items():
+    for _ , task_recipe in evidence.config.items():
       if isinstance(task_recipe, dict):
         task = task_recipe.get('task',None)
         if task and task == task_name:
@@ -758,10 +759,10 @@ class TurbiniaTask(object):
         #passing recipes to newly created evidence
         #self._evidence_config = evidence.config
         print('**** LOOKING FOR ' + self.name + ' ********')
-        task_recipe = self.get_task_recipe(self.name, evidence) 
-        if task_recipe:
-          task_recipe.pop('task')
-        self.result = self.run(evidence, self.result, task_recipe)
+        self.recipe = self.get_task_recipe(self.name, evidence) 
+        if self.recipe:
+          self.recipe.pop('task')
+        self.result = self.run(evidence, self.result)
       # pylint: disable=broad-except
       except Exception as exception:
         message = (
@@ -824,7 +825,7 @@ class TurbiniaTask(object):
               self.result.id))
     return self.result.serialize()
 
-  def run(self, evidence, result, recipe={}):
+  def run(self, evidence, result):
     """Entry point to execute the task.
 
     Args:
