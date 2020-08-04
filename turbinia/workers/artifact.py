@@ -15,41 +15,20 @@ import os
 
 from turbinia import config
 from turbinia.evidence import ExportedFileArtifact
+from turbinia.evidence import EvidenceState as state
 from turbinia.workers import TurbiniaTask
 
 
 class FileArtifactExtractionTask(TurbiniaTask):
   """Task to run image_export (log2timeline)."""
 
-  task_conf = {
-      'artifact_filters': [],
-      'no_vss': False,
-      'vss_only': False,
-      'volumes': 'all',
-      'partitions': 'all',
-      'vss_stores': 'all',
-      'extensions': [],
-      'names': [],
-      'signatures': [], 
-      'date_filter': ''
-  }
+  REQUIRED_STATES = [
+      state.ATTACHED, state.PARENT_ATTACHED, state.PARENT_MOUNTED
+  ]
 
-  def build_command(self):
-    cmd = ['image_export.py']
-    for k, v in self.task_conf.items():
-      prepend = '-'
-      if len(k) > 1:
-        prepend = '--'
-      if isinstance(v, list):
-        if v:
-          cmd.extend([prepend + k, ','.join(v)])
-      elif isinstance(v, bool):
-        if v: 
-          cmd.append(prepend + k)
-      elif isinstance(v, str):
-        if v:
-          cmd.extend([prepend + k, v])
-    return cmd
+  def __init__(self, artifact_name='FileArtifact'):
+    super(FileArtifactExtractionTask, self).__init__()
+    self.artifact_name = artifact_name
 
   def run(self, evidence, result):
     """Extracts artifacts using Plaso image_export.py.
@@ -65,11 +44,18 @@ class FileArtifactExtractionTask(TurbiniaTask):
     image_export_log = os.path.join(
         self.output_dir, '{0:s}.log'.format(self.id))
 
-    if self.task_variant:
-      self.task_conf.update(evidence.config[self.task_variant])
-
-    cmd = self.build_command()
-
+    cmd = [
+        'sudo',
+        'image_export.py',
+        '--logfile',
+        image_export_log,
+        '-w',
+        export_directory,
+        '--partitions',
+        'all',
+        '--artifact_filters',
+        self.artifact_name,
+    ]
     if config.DEBUG_TASKS:
       cmd.append('-d')
     cmd.append(evidence.local_path)
@@ -79,8 +65,8 @@ class FileArtifactExtractionTask(TurbiniaTask):
     ret, _ = self.execute(cmd, result, log_files=[image_export_log])
     if ret:
       result.close(
-          self, False, 'image_export.py failed')
-            
+          self, False, 'image_export.py failed for artifact {0:s}.'.format(
+              self.artifact_name))
       return result
 
     for dirpath, _, filenames in os.walk(export_directory):
