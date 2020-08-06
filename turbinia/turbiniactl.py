@@ -295,9 +295,9 @@ def main():
 
   # Parser options for CompressedDirectory evidence type
   parser_directory = subparsers.add_parser(
-      'compressedirectory', help='Process a compressed tar file as Evidence')
+      'compresseddirectory', help='Process a compressed tar file as Evidence')
   parser_directory.add_argument(
-      '-l', '--local_path', help='Local path to the evidence', required=True)
+      '-l', '--source_path', help='Local path to the evidence', required=True)
   parser_directory.add_argument(
       '-s', '--source', help='Description of the source of the evidence',
       required=False)
@@ -372,6 +372,10 @@ def main():
       '-t', '--task_id', help='Show task for given Task ID', required=False)
   parser_status.add_argument(
       '-u', '--user', help='Show task for given user', required=False)
+  parser_status.add_argument(
+      '-i', '--requests', required=False, action='store_true',
+      help='Show all requests from a specified timeframe. The default '
+      'timeframe is 7 days. Please use the -d flag to extend this.')
 
   # Server
   subparsers.add_parser('server', help='Run Turbinia Server')
@@ -563,7 +567,7 @@ def main():
     else:
       evidence_ = evidence.Directory(
           name=args.name, source_path=source_path, source=args.source)
-  elif args.command == 'compressedirectory':
+  elif args.command == 'compresseddirectory':
     archive.ValidateTarFile(args.source_path)
     args.name = args.name if args.name else args.source_path
     source_path = os.path.abspath(args.source_path)
@@ -654,6 +658,14 @@ def main():
       log.info(
           '--wait requires --request_id, which is not specified. '
           'turbiniactl will exit without waiting.')
+
+    if args.requests:
+      print(
+          client.format_request_status(
+              instance=config.INSTANCE_ID, project=config.TURBINIA_PROJECT,
+              region=region, days=args.days_history,
+              all_fields=args.all_fields))
+      sys.exit(0)
 
     print(
         client.format_task_status(
