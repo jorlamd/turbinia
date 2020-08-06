@@ -22,7 +22,6 @@ from tempfile import NamedTemporaryFile
 from turbinia import config
 from turbinia.evidence import APFSEncryptedDisk
 from turbinia.evidence import BitlockerDisk
-from turbinia.evidence import EvidenceState as state
 from turbinia.evidence import PlasoFile
 from turbinia.workers import TurbiniaTask
 

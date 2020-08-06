@@ -33,6 +33,7 @@ import filelock
 
 from turbinia import config
 from turbinia.config import DATETIME_FORMAT
+from turbinia.config import BASE_TASK_CONFIG_FILE
 from turbinia.evidence import evidence_decode
 from turbinia import output_manager
 from turbinia import state_manager
@@ -369,11 +370,9 @@ class TurbiniaTask(object):
       'id', 'job_id', 'last_update', 'name', 'request_id', 'requester'
   ]
 
-  # The list of evidence states that are required by a Task in order to run.
-  # See `evidence.Evidence.preprocess()` docstrings for more details.
-  REQUIRED_STATES = []
-
   def __init__(
+      self, name=None, base_output_dir=None, request_id=None,
+      requester=None):
     """Initialization for TurbiniaTask."""
     if base_output_dir:
       self.base_output_dir = base_output_dir
@@ -456,34 +455,10 @@ class TurbiniaTask(object):
           file_path, exception)
     return file_path
 
-  def evidence_setup(self, evidence):
-    """Validates and processes the evidence.
-
-    Args:
-      evidence(Evidence): The Evidence to setup.
-
-    Raises:
-      TurbiniaException: If the Evidence can't be validated or the current
-          state does not meet the required state.
-    """
-    evidence.validate()
-    evidence.preprocess(self.tmp_dir, required_states=self.REQUIRED_STATES)
-
-    # Final check to make sure that the required evidence state has been met
-    # for Evidence types that have those capabilities.
-    for state in self.REQUIRED_STATES:
-      if state in evidence.POSSIBLE_STATES and not evidence.state.get(state):
-        raise TurbiniaException(
-            'Evidence {0!s} being processed by Task {1:s} requires Evidence '
-            'to be in state {2:s}, but earlier pre-processors may have '
-            'failed.  Current state is {3:s}. See previous logs for more '
-            'information.'.format(
-                evidence, self.name, state.name, evidence.format_state()))
->>>>>>> upstream/master
 
   def execute(
       self, cmd, result, save_files=None, log_files=None, new_evidence=None,
-      close=False, shell=False, success_codes=None):
+      close=False, shell=False, success_codes=None, executable=None):
     """Executes a given binary and saves output.
 
     Args:
@@ -508,6 +483,9 @@ class TurbiniaTask(object):
     log_files = log_files if log_files else []
     new_evidence = new_evidence if new_evidence else []
     success_codes = success_codes if success_codes else [0]
+    command = ["/bin/bash", "-i", "-c"]
+    command.append(" ".join(cmd))
+    proc = subprocess.Popen(command)
 
     # Execute the job via docker.
     docker_image = job_manager.JobsManager.GetDockerImage(self.job_name)
@@ -603,10 +581,10 @@ class TurbiniaTask(object):
     Raises:
       TurbiniaException: If the evidence can not be found.
     """
-    self.output_manager.setup(self.name, self.id)
+    self.output_manager.setup(self)
     self.tmp_dir, self.output_dir = self.output_manager.get_local_output_dirs()
     if not self.result:
-      self.result = self.create_result(input_evidence=evidence)
+      self.result = self.create_result()
 
     if not self.run_local:
       if evidence.copyable and not config.SHARED_FILESYSTEM:
@@ -622,19 +600,17 @@ class TurbiniaTask(object):
     """Updates the last_update time of the task."""
     self.last_update = datetime.now()
 
-  def create_result(
-      self, input_evidence=None, status=None, message=None, trace=None):
+  def create_result(self, status=None, message=None, trace=None):
     """Creates a new TurbiniaTaskResults and instantiates the result.
 
     Args:
-      input_evidence(Evidence): The evidence being processed by this Task.
-      status(str): A one line descriptive task status.
-      message(str): An error message to show when returning the result.
+      status: A one line descriptive task status.
+      message: An error message to show when returning the result.
       trace: Stack traceback for errors.
     """
     result = TurbiniaTaskResult(
         base_output_dir=self.base_output_dir, request_id=self.request_id,
-        job_id=self.job_id, input_evidence=input_evidence)
+        job_id=self.job_id)
     result.setup(self)
     if message:
       if status:
@@ -749,13 +725,18 @@ class TurbiniaTask(object):
         self.result = self.create_result(
             message=message, trace=traceback.format_exc())
       return self.result.serialize()
-
     with filelock.FileLock(config.LOCK_FILE):
       log.info('Starting Task {0:s} {1:s}'.format(self.name, self.id))
       original_result_id = None
       try:
         original_result_id = self.result.id
+        evidence.validate()
 
+        # Preprocessor must be called after evidence validation.
+        evidence.preprocess(self.tmp_dir)
+        # TODO(wyassine): refactor it so the result task does not
+        # have to go through the preprocess stage. At the moment
+        # self.results.setup is required to be called to set its status.
         # Check if Task's job is available for the worker.
         active_jobs = list(job_manager.JobsManager.GetJobNames())
         if self.job_name.lower() not in active_jobs:
@@ -766,8 +747,6 @@ class TurbiniaTask(object):
           self.result.status = message
           return self.result.serialize()
 
-        self.evidence_setup(evidence)
-
         if self.turbinia_version != turbinia.__version__:
           message = (
               'Worker and Server versions do not match: {0:s} != {1:s}'.format(
@@ -775,7 +754,6 @@ class TurbiniaTask(object):
           self.result.log(message, level=logging.ERROR)
           self.result.status = message
           return self.result.serialize()
-
         self.result.update_task_status(self, 'running')
         #commenting out assuming this particular release does not aim to support 
         #passing recipes to newly created evidence
@@ -785,7 +763,6 @@ class TurbiniaTask(object):
         if self.recipe:
           self.recipe.pop('task')
         self.result = self.run(evidence, self.result)
-
       # pylint: disable=broad-except
       except Exception as exception:
         message = (

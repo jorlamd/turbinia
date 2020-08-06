@@ -17,15 +17,10 @@
 from __future__ import unicode_literals
 
 import json
-import mock
 import unittest
 
 from turbinia import evidence
 from turbinia import TurbiniaException
-
-
-class TestEvidence(evidence.Evidence):
-  POSSIBLE_STATES = [evidence.EvidenceState.MOUNTED]
 
 
 class TestTurbiniaEvidence(unittest.TestCase):
@@ -97,10 +92,3 @@ class TestTurbiniaEvidence(unittest.TestCase):
     rawdisk = evidence.RawDisk(name='My Evidence', source_path='/tmp/foo')
     rawdisk.REQUIRED_ATTRIBUTES = ['doesnotexist']
     self.assertRaises(TurbiniaException, rawdisk.validate)
-
-  @mock.patch('turbinia.evidence.Evidence._preprocess')
-  def testEvidencePreprocess(self, mock_preprocess):
-    """Basic test for Evidence.preprocess()."""
-    test_evidence = TestEvidence()
-    test_evidence.preprocess(required_states=[evidence.EvidenceState.ATTACHED])
-    mock_preprocess.assert_called_with(None, [evidence.EvidenceState.ATTACHED])

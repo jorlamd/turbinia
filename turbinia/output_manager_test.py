@@ -47,7 +47,6 @@ class TestLocalOutputManager(unittest.TestCase):
     self.tmp_dir_save = config.TMP_DIR
     config.GCS_OUTPUT_PATH = 'gs://fake/path'
     config.TMP_DIR = self.tmp_dir
-    config.OUTPUT_DIR = self.base_output_dir
     self.task = workers.TurbiniaTask(base_output_dir=self.base_output_dir)
 
   def tearDown(self):
@@ -62,8 +61,7 @@ class TestLocalOutputManager(unittest.TestCase):
   def testGetOutputWriters(self):
     """Tests get_output_writers function for valid response."""
     output_manager.storage = mock.MagicMock()
-    writers = output_manager.OutputManager.get_output_writers(
-        self.task.name, self.task.id, remote_only=False)
+    writers = output_manager.OutputManager.get_output_writers(self.task)
     self.assertEquals(len(writers), 2)
     for writer in writers:
       self.assertIsInstance(writer, output_manager.OutputWriter)
@@ -71,7 +69,7 @@ class TestLocalOutputManager(unittest.TestCase):
   def testGetLocalOutputDirs(self):
     """Tests get_local_output_dirs function for valid response."""
     output_manager.storage = mock.MagicMock()
-    self.task.output_manager.setup(self.task.name, self.task.id)
+    self.task.output_manager.setup(self.task)
     tmp_dir, local_dir = self.task.output_manager.get_local_output_dirs()
 
     self.assertTrue(self.task.output_manager.is_setup)
@@ -84,7 +82,7 @@ class TestLocalOutputManager(unittest.TestCase):
     """Test the save_local_file method."""
     # Set path to None so we don't try to initialize GCS outout writer.
     config.GCS_OUTPUT_PATH = None
-    self.task.output_manager.setup(self.task.name, self.task.id)
+    self.task.output_manager.setup(self.task)
     tmp_dir, local_dir = self.task.output_manager.get_local_output_dirs()
     self.task.result = mock.MagicMock()
     self.task.result.saved_paths = []
@@ -107,7 +105,7 @@ class TestLocalOutputManager(unittest.TestCase):
     """Test the save_evidence method."""
     # Set path to None so we don't try to initialize GCS outout writer.
     config.GCS_OUTPUT_PATH = None
-    self.task.output_manager.setup(self.task.name, self.task.id)
+    self.task.output_manager.setup(self.task)
     tmp_dir, local_dir = self.task.output_manager.get_local_output_dirs()
     self.task.result = mock.MagicMock()
     self.task.result.saved_paths = []
@@ -135,7 +133,7 @@ class TestLocalOutputManager(unittest.TestCase):
     """Test the save_evidence method with metadata file."""
     # Set path to None so we don't try to initialize GCS outout writer.
     config.GCS_OUTPUT_PATH = None
-    self.task.output_manager.setup(self.task.name, self.task.id)
+    self.task.output_manager.setup(self.task)
     tmp_dir, local_dir = self.task.output_manager.get_local_output_dirs()
     self.task.result = mock.MagicMock()
     self.task.result.saved_paths = []
